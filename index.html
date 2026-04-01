@@ -1,1 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Gawynt Flappy Bird</title>
+    <style>
+        :root {
+            --bg: #0b0e14;
+            --surface: #1e293b;
+            --accent: #00d2ff;
+            --bird: #facc15;
+            --pipe: #22c55e;
+            --text: #f8fafc;
+        }
 
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            height: 100vh;
+            max-height: 750px;
+            background: #000;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, #0f172a 0%, #1e293b 100%);
+        }
+
+        /* UI Overlays */
+        .overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(11, 14, 20, 0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+            padding: 30px;
+            backdrop-filter: blur(10px);
+        }
+
+        .brand-title {
+            font-size: 2.5rem;
+            font-weight: 900;
+            margin: 0;
+            background: linear-gradient(to right, var(--accent), #9333ea);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-align: center;
+            line-height: 1;
+            margin-bottom: 5px;
+        }
+
+        .brand-sub {
+            font-size: 0.8rem;
+            letter-spacing: 4px;
+            color: var(--accent);
+            margin-bottom: 30px;
+            text-transform: uppercase;
+        }
+
+        .menu-card {
+            background: var(--surface);
+            padding: 25px;
+            border-radius: 20px;
+            width: 100%;
+            max-width: 300px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        input {
+            width: 100%;
+            padding: 14px;
+            margin-bottom: 15px;
+            border-radius: 12px;
+            border: 2px solid #334155;
+            background: #0f172a;
+            color: white;
+            box-sizing: border-box;
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        input:focus { border-color: var(--accent); }
+
+        button {
+            width: 100%;
+            padding: 14px;
+            background: var(--accent);
+            color: #000;
+            border: none;
+            border-radius: 12px;
+            font-weight: 800;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        button:hover { filter: brightness(1.1); }
+        button:active { transform: scale(0.96); }
+
+        .leaderboard {
+            margin-top: 25px;
+            width: 100%;
+        }
+
+        .leaderboard h3 { 
+            font-size: 0.9rem; 
+            color: #94a3b8; 
+            text-transform: uppercase; 
+            margin-bottom: 10px;
+            border-bottom: 1px solid #334155;
+            padding-bottom: 5px;
+        }
+
+        .score-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            font-family: monospace;
+            font-size: 1rem;
+        }
+
+        .score-row span:first-child { color: var(--accent); }
+
+        #score-hud {
+            position: absolute;
+            top: 40px;
+            width: 100%;
+            text-align: center;
+            font-size: 4rem;
+            font-weight: 900;
+            z-index: 10;
+            pointer-events: none;
+            color: rgba(255,255,255,0.2);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="score-hud">0</div>
+        <canvas id="gameCanvas"></canvas>
+
+        <div id="ui-overlay" class="overlay">
+            <h1 class="brand-title">GAWYNT</h1>
+            <div class="brand-sub">Flappy Bird</div>
+            
+            <div class="menu-card">
+                <input type="text" id="playerName" placeholder="Enter Name" maxlength="12">
+                <button onclick="pressStart()">START GAME</button>
+                
+                <div class="leaderboard">
+                    <h3>Hall of Fame</h3>
+                    <div id="leaderboardList"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const overlay = document.getElementById('ui-overlay');
+        const scoreHud = document.getElementById('score-hud');
+        const nameInput = document.getElementById('playerName');
+
+        // State & Settings
+        let bird, pipes, frame, score, active = false;
+        const GRAVITY = 0.25;
+        const FLAP = -5;
+        const PIPE_SPEED = 3;
+        const GAP = 160;
+
+        // Sync canvas size
+        function resize() {
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Load previous name
+        if(localStorage.getItem('gawynt_user')) {
+            nameInput.value = localStorage.getItem('gawynt_user');
+        }
+
+        function pressStart() {
+            if(!nameInput.value.trim()) {
+                nameInput.style.borderColor = "#ef4444";
+                return;
+            }
+            localStorage.setItem('gawynt_user', nameInput.value);
+            overlay.style.display = 'none';
+            resetGame();
+        }
+
+        function resetGame() {
+            bird = { x: 60, y: canvas.height / 2, velocity: 0, radius: 15 };
+            pipes = [];
+            score = 0;
+            frame = 0;
+            scoreHud.innerText = "0";
+            active = true;
+            requestAnimationFrame(gameLoop);
+        }
+
+        function endGame() {
+            active = false;
+            saveScore(nameInput.value, score);
+            overlay.style.display = 'flex';
+            document.querySelector('.brand-sub').innerText = `Final Score: ${score}`;
+            renderLeaderboard();
+        }
+
+        function saveScore(name, score) {
+            let scores = JSON.parse(localStorage.getItem('gawynt_scores')) || [];
+            scores.push({ name, score });
+            scores.sort((a, b) => b.score - a.score);
+            localStorage.setItem('gawynt_scores', JSON.stringify(scores.slice(0, 5)));
+        }
+
+        function renderLeaderboard() {
+            const scores = JSON.parse(localStorage.getItem('gawynt_scores')) || [];
+            const list = document.getElementById('leaderboardList');
+            list.innerHTML = scores.map((s, i) => `
+                <div class="score-row">
+                    <span>#${i+1} ${s.name}</span>
+                    <span>${s.score}</span>
+                </div>
+            `).join('') || '<div style="text-align:center; opacity:0.5">No scores yet</div>';
+        }
+
+        // Input Handling (Universal)
+        const trigger = (e) => {
+            if(active) {
+                bird.velocity = FLAP;
+                if(e.cancelable) e.preventDefault();
+            }
+        };
+        window.addEventListener('keydown', (e) => { if(e.code === 'Space' || e.code === 'ArrowUp') trigger(e); });
+        canvas.addEventListener('touchstart', trigger, {passive: false});
+        canvas.addEventListener('mousedown', trigger);
+
+        function update() {
+            bird.velocity += GRAVITY;
+            bird.y += bird.velocity;
+
+            // Bounds check
+            if (bird.y + bird.radius > canvas.height || bird.y - bird.radius < 0) endGame();
+
+            // Pipes
+            if (frame % 85 === 0) {
+                const pipeTopHeight = Math.random() * (canvas.height - GAP - 100) + 50;
+                pipes.push({ x: canvas.width, top: pipeTopHeight, passed: false });
+            }
+
+            pipes.forEach((p, i) => {
+                p.x -= PIPE_SPEED;
+
+                // Collision
+                if (bird.x + bird.radius > p.x && bird.x - bird.radius < p.x + 60) {
+                    if (bird.y - bird.radius < p.top || bird.y + bird.radius > p.top + GAP) endGame();
+                }
+
+                // Scoring
+                if (!p.passed && p.x + 60 < bird.x) {
+                    score++;
+                    scoreHud.innerText = score;
+                    p.passed = true;
+                }
+
+                if (p.x + 60 < 0) pipes.splice(i, 1);
+            });
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Pipes
+            pipes.forEach(p => {
+                ctx.fillStyle = '#22c55e';
+                ctx.fillRect(p.x, 0, 60, p.top);
+                ctx.fillRect(p.x, p.top + GAP, 60, canvas.height);
+                
+                // Pipe Caps
+                ctx.fillStyle = '#16a34a';
+                ctx.fillRect(p.x - 2, p.top - 15, 64, 15);
+                ctx.fillRect(p.x - 2, p.top + GAP, 64, 15);
+            });
+
+            // Gawynt Bird
+            ctx.fillStyle = '#facc15';
+            ctx.beginPath();
+            ctx.arc(bird.x, bird.y, bird.radius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // "G" Insignia on bird
+            ctx.fillStyle = "#000";
+            ctx.font = "bold 12px Arial";
+            ctx.fillText("G", bird.x - 4, bird.y + 4);
+
+            // Eye
+            ctx.fillStyle = "white";
+            ctx.beginPath();
+            ctx.arc(bird.x + 7, bird.y - 5, 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function gameLoop() {
+            if (!active) return;
+            update();
+            draw();
+            frame++;
+            requestAnimationFrame(gameLoop);
+        }
+
+        renderLeaderboard();
+    </script>
+</body>
+</html>
